@@ -1,64 +1,139 @@
-***
+## 🚀 How to Run
 
-# Task 1: The "Glorified Autocomplete" (GPT-2 Pretraining)
+### 1. Install Dependencies
 
-**Pretraining**. Your objective is to build a scaled-down, decoder-only Transformer model (similar to the GPT-2 architecture) from scratch and train it to predict the next character in a sequence. 
+```bash
+pip install torch requests
+```
 
-Essentially, you are building a highly complex autocomplete function trained exclusively on the works of William Shakespeare.
+---
 
-## 📋 Task 1 Overview
-You will implement a sub-word level causal language model using PyTorch (only Pytorch). By the end of this task, your model should take a seed prompt and continuously predict the next token to generate novel, Shakespeare-esque text. **The model architecture should be based on GPT-2 but you are free modify it**.
+### 2. Run Training + Generation
 
-### Core Deliverables:
+```bash
+python task1_sol.py
+```
 
-**All deliverable code should python files, other formats like jupyter notebooks are not allowed**.
+This script will:
 
-1.  **Data Loader:** Process and tokenize the `tinyshakespeare` dataset into inputs (`x`) and targets (`y` shifted by one token).
-2.  **The Architecture:** Implement a Decoder-only Transformer block (Masked Self-Attention, Feed-Forward Networks, and Positional/Token Embeddings).
-3.  **The Pretraining Loop:** Write a training loop to optimize the model using Cross-Entropy Loss over multiple epochs.
-4.  **The Autocomplete:** A simple generation function that samples from your model's probability distribution to generate text.
+* Download the dataset (if not already present)
+* Train the model
+* Generate text after training completes
 
-## 🗂️ The Dataset
-We will be using the **Tiny Shakespeare** dataset, containing roughly 40,000 lines of Shakespeare's plays. 
-* **Download Link:** [tinyshakespeare/input.txt](https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt)
+---
 
-## 🗺️ Suggested Milestones
+## 📂 Dataset
 
-* **Step 1: Load the dataset**
-    * Use the given dataloader or write your own.
-* **Step 2: The Core Mechanism (Masked Self-Attention)**
-    * Implement a single Masked Self-Attention head.
-* **Step 3: Scaling Up (Multi-Head Attention)**
-    * Expand to Multi-Head Attention and build a complete Transformer block (adding LayerNorm and Feed-Forward layers).
-* **Step 4: Putting it Together**
-    * Stack multiple blocks, add your embeddings, and finalize the model architecture.
-* **Step 5: Let it Train**
-    * Run your pretraining loop until the validation loss stops improving. Generate a block of text (e.g., 500 characters) to see your "autocomplete" in action.
+* **Name:** Tiny Shakespeare
+* Automatically downloaded from:
 
-## 📤 Submission Guidelines
+  ```
+  https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
+  ```
+* Saved locally as:
 
-1.  **Fork** this repository.
-2.  Develop your solution in your repo.
-3.  Ensure your code is clean, modular, and easy to follow.
-4.  Create a **README** in your repo to include:
-    * Instructions on how to run your pretraining script.
-    * Instructions on how to run your generation/autocomplete script.
-    * A sample of the text your model generated.
-    * A brief explanation of your model's hyperparameters (number of layers, heads, embedding size, etc.).
-5.  Submit the link to your forked repository via the induction submission form.
+  ```
+  shakespeare.txt
+  ```
 
-## ⚖️ Evaluation Criteria
+---
 
-For Task 1, we are evaluating you on the following:
-- **Architecture Accuracy**: Not just the output we want a sensible architecture as well.
-- **Code Quality**: Is the code organized, documented and hand written (No vibe coding allowed).
-- **Conceptual Grasp**: Can you explain the math and logic behind your code during your induction interview?
-- **Learning Proof**: Does the training loss go down, and does the output look vaguely like English words/structures? (We aren't looking for a massive, state-of-the-art model—just proof that your architecture learns).
+## ⚙️ Model Hyperparameters
 
+| Hyperparameter   | Value           |
+| ---------------- | --------------- |
+| Vocabulary Type  | Character-level |
+| Embedding Size   | 128             |
+| Number of Layers | 4               |
+| Number of Heads  | 4               |
+| Context Length   | 128             |
+| Batch Size       | 64              |
+| Dropout          | 0.2             |
+| Learning Rate    | 3e-4            |
+| Training Steps   | 40,000          |
 
-## 📚 Helpful Resources
-* [Let's build GPT: from scratch, in code, spelled out by Andrej Karpathy](https://www.youtube.com/watch?v=kCc8FmEb1nY) (Highly recommended—it covers this exact task perfectly!)
-* [The Illustrated Transformer by Jay Alammar](https://jalammar.github.io/illustrated-transformer/)
-* [Attention Is All You Need (Original Paper)](https://arxiv.org/abs/1706.03762)
-* [Attention is all you need - Video explanation](https://www.youtube.com/watch?v=bCz4OMemCcA)
-***
+### Explanation
+
+* **Character-level vocab**: Each character is treated as a token
+* **Embedding Size**: Size of token representations
+* **Layers**: Number of Transformer blocks
+* **Heads**: Multi-head attention splits learning across multiple heads
+* **Context Length**: Number of previous tokens the model considers
+* **Dropout**: Helps prevent overfitting
+* **Optimizer**: AdamW for stable training
+
+---
+
+## 🧠 Model Architecture
+
+The model consists of:
+
+* Token Embeddings + Positional Embeddings
+* Transformer Blocks:
+
+  * Multi-Head Self-Attention
+  * Feedforward Network
+  * Residual Connections + Layer Normalization
+* Final Linear Layer for next-token prediction
+
+---
+
+## ✨ Text Generation
+
+* Autoregressive generation
+* Temperature sampling (default = 0.8)
+
+---
+
+## 📝 Sample Output
+
+```
+unto be angrown extremest how the benefit:
+Thou shut me, for excelles your son are their by,
+And infect to first.
+
+Second Lord:
+I will rish your well and in my arms,
+The heavens of a love that spirit's man be as dosses
+Of Yorkissing to take the dear mine eyes.
+Like his head down, with the blood, the thire
+With many obind him to son, we were craves for
+His own gobering: call'd hath rest the right.
+
+ANGELO:
+Immittain.
+
+ISABELLAND:
+Your patient soul the next of the earth, I do will
+Her frant which
+```
+
+### Observations
+
+* Learns dialogue structure (character names, formatting)
+* Mimics Shakespearean tone
+* Generates plausible but sometimes incorrect words
+
+---
+
+## 📁 Project Structure
+
+```
+├── task1_sol.py        # Training + generation script
+├── shakespeare.txt     # Dataset (auto-downloaded)
+├── README.md
+```
+
+---
+
+## ⚠️ Notes
+
+* Training on CPU can be slow — GPU is recommended
+* Reduce `batch_size` if you encounter memory issues
+* Longer training improves output quality
+
+---
+
+## 🙌 Acknowledgements
+
+Inspired by transformer-based language models and educational implementations of GPT and Adrej Ktharpy.
