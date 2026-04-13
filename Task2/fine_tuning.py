@@ -5,11 +5,6 @@ from functools import partial
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # ─────────────────────────────────────────────
-# DEVICE
-# ─────────────────────────────────────────────
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# ─────────────────────────────────────────────
 # PROMPTS
 # ─────────────────────────────────────────────
 PROMPT_WITH_INPUT = (
@@ -28,24 +23,39 @@ PROMPT_WITHOUT_INPUT = (
 )
 
 # ─────────────────────────────────────────────
-# FORMATTER (CONSISTENT)
+# FORMATTERS
 # ─────────────────────────────────────────────
-def format_prompt(example):
+def format_input(example):
     if example.get("input") and example["input"].strip():
         return PROMPT_WITH_INPUT.format(
             instruction=example["instruction"],
             input=example["input"],
-        )
+        ).rstrip()
     else:
         return PROMPT_WITHOUT_INPUT.format(
             instruction=example["instruction"],
-        )
+        ).rstrip()
+
+
+def format_alpaca_prompt(example):
+    if example.get("input") and example["input"].strip():
+        text = PROMPT_WITH_INPUT.format(
+            instruction=example["instruction"],
+            input=example["input"],
+        ) + example["output"]
+    else:
+        text = PROMPT_WITHOUT_INPUT.format(
+            instruction=example["instruction"],
+        ) + example["output"]
+
+    return {"text": text}
 
 # ─────────────────────────────────────────────
 # DATASET
 # ─────────────────────────────────────────────
 def load_alpaca_dataset(split="train", test_size=0.1, val_size=0.1, seed=42):
     dataset = load_dataset("tatsu-lab/alpaca", split="train")
+    dataset = dataset.map(format_alpaca_prompt)
 
     train_val, test_ds = dataset.train_test_split(
         test_size=test_size, seed=seed
@@ -60,68 +70,9 @@ def load_alpaca_dataset(split="train", test_size=0.1, val_size=0.1, seed=42):
     return splits[split]
 
 # ─────────────────────────────────────────────
-# TOKENIZER
+# DEVICE
 # ─────────────────────────────────────────────
-tokenizer = AutoTokenizer.from_pretrained("openai-community/gpt2")
-tokenizer.pad_token = tokenizer.eos_token  # GPT2 fix
-
-# ─────────────────────────────────────────────
-# DATASET CLASS (FIXED + MASKING READY)
-# ─────────────────────────────────────────────
-class InstructionDataset(Dataset):
-    def __init__(self, data, tokenizer, max_length=256):
-        self.inputs = []
-        self.targets = []
-
-        for entry in data:
-            prompt = format_prompt(entry)
-            response = entry["output"]
-
-            full_text = prompt + response
-
-            tokens = tokenizer.encode(
-                full_text,
-                truncation=True,
-                max_length=max_length
-            )
-
-            # Create labels with masking (IMPORTANT improvement)
-            prompt_tokens = tokenizer.encode(prompt, truncation=True, max_length=max_length)
-            labels = tokens.copy()
-
-            # Mask prompt part
-            labels[:len(prompt_tokens)] = [-100] * len(prompt_tokens)
-
-            self.inputs.append(tokens)
-            self.targets.append(labels)
-
-    def __getitem__(self, index):
-        return self.inputs[index], self.targets[index]
-
-    def __len__(self):
-        return len(self.inputs)
-
-# ─────────────────────────────────────────────
-# COLLATE FUNCTION (CLEAN)
-# ─────────────────────────────────────────────
-def custom_collate_fn(batch, pad_token_id, device):
-    inputs, targets = zip(*batch)
-
-    max_len = max(len(x) for x in inputs)
-
-    padded_inputs = []
-    padded_targets = []
-
-    for inp, tgt in zip(inputs, targets):
-        pad_len = max_len - len(inp)
-
-        padded_inputs.append(inp + [pad_token_id] * pad_len)
-        padded_targets.append(tgt + [-100] * pad_len)
-
-    return (
-        torch.tensor(padded_inputs).to(device),
-        torch.tensor(padded_targets).to(device)
-    )
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ─────────────────────────────────────────────
 # LOAD DATA
@@ -130,6 +81,67 @@ train_data = load_alpaca_dataset("train")
 val_data   = load_alpaca_dataset("val")
 test_data  = load_alpaca_dataset("test")
 
+# ─────────────────────────────────────────────
+# TOKENIZER
+# ─────────────────────────────────────────────
+tokenizer = AutoTokenizer.from_pretrained("openai-community/gpt2")
+tokenizer.pad_token = tokenizer.eos_token
+
+# ─────────────────────────────────────────────
+# DATASET CLASS
+# ─────────────────────────────────────────────
+class InstructionDataset(Dataset):
+    def __init__(self, data, tokenizer, max_length=256):
+        self.encoded_texts = []
+
+        for entry in data:
+            prompt = format_input(entry)
+            full_text = prompt + entry["output"]
+
+            tokens = tokenizer.encode(
+                full_text,
+                truncation=True,
+                max_length=max_length
+            )
+
+            self.encoded_texts.append(tokens)
+
+    def __getitem__(self, index):
+        return self.encoded_texts[index]
+
+    def __len__(self):
+        return len(self.encoded_texts)
+
+# ─────────────────────────────────────────────
+# COLLATE
+# ─────────────────────────────────────────────
+def custom_collate_fn(batch, pad_token_id, ignore_index=-100,
+                      allowed_max_length=256, device="cpu"):
+
+    batch_max_length = max(len(item) + 1 for item in batch)
+    inputs_lst, targets_lst = [], []
+
+    for item in batch:
+        new_item = item + [pad_token_id]
+        padded = new_item + [pad_token_id] * (batch_max_length - len(new_item))
+
+        inputs  = torch.tensor(padded[:-1])
+        targets = torch.tensor(padded[1:])
+
+        mask = targets == pad_token_id
+        targets[mask] = ignore_index
+
+        inputs_lst.append(inputs[:allowed_max_length])
+        targets_lst.append(targets[:allowed_max_length])
+
+    return (
+        torch.stack(inputs_lst).to(device),
+        torch.stack(targets_lst).to(device)
+    )
+
+# ─────────────────────────────────────────────
+# DATALOADERS
+# ─────────────────────────────────────────────
 collate = partial(
     custom_collate_fn,
     pad_token_id=tokenizer.pad_token_id,
@@ -140,6 +152,7 @@ train_loader = DataLoader(
     InstructionDataset(train_data, tokenizer),
     batch_size=2,
     shuffle=True,
+    drop_last=True,
     collate_fn=collate
 )
 
@@ -160,9 +173,7 @@ model.to(device)
 # LOSS
 # ─────────────────────────────────────────────
 def calc_loss_batch(input_batch, target_batch):
-    outputs = model(input_batch)
-    logits = outputs.logits
-
+    logits = model(input_batch).logits
     return torch.nn.functional.cross_entropy(
         logits.view(-1, logits.size(-1)),
         target_batch.view(-1),
@@ -184,7 +195,7 @@ def generate(model, idx, max_new_tokens, context_size, eos_id):
 
         next_id = torch.multinomial(probs, 1)
 
-        if next_id.item() == eos_id:
+        if (next_id == eos_id).all():
             break
 
         idx = torch.cat([idx, next_id], dim=1)
@@ -212,7 +223,8 @@ for epoch in range(3):
         losses.append(loss.item())
 
         if step % 200 == 0 and step > 0:
-            print(f"Epoch {epoch} | Step {step} | Loss: {sum(losses)/len(losses):.3f}")
+            avg_loss = sum(losses) / len(losses)
+            print(f"Epoch {epoch} | Step {step} | Avg Loss: {avg_loss:.3f}")
             losses = []
 
     # VALIDATION
@@ -221,9 +233,11 @@ for epoch in range(3):
 
     with torch.no_grad():
         for x_val, y_val in val_loader:
-            val_losses.append(calc_loss_batch(x_val, y_val).item())
+            val_loss = calc_loss_batch(x_val, y_val)
+            val_losses.append(val_loss.item())
 
     print(f"\nEpoch {epoch} | Validation Loss: {sum(val_losses)/len(val_losses):.3f}\n")
+    model.train()
 
 # ─────────────────────────────────────────────
 # TEST
@@ -231,9 +245,9 @@ for epoch in range(3):
 model.eval()
 
 for entry in test_data.select(range(3)):
-    prompt = format_prompt(entry)
+    input_text = format_input(entry)
 
-    input_ids = torch.tensor(tokenizer.encode(prompt)).unsqueeze(0).to(device)
+    input_ids = torch.tensor(tokenizer.encode(input_text)).unsqueeze(0).to(device)
 
     output_ids = generate(
         model,
@@ -244,9 +258,9 @@ for entry in test_data.select(range(3)):
     )
 
     generated = tokenizer.decode(output_ids[0])
-    response = generated[len(prompt):].strip()
+    response = generated[len(input_text):].strip()
 
-    print("\nINPUT:\n", prompt)
+    print("\nINPUT:\n", input_text)
     print("\nEXPECTED:\n", entry["output"])
     print("\nMODEL:\n", response)
-    print("=" * 50)
+    print("="*50)
